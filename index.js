@@ -259,18 +259,25 @@ function nameToSelector(name, tag = "input") {
 
   console.log("DOB berhasil diisi:", birth);
 
-  await page.waitForSelector("div.g-recaptcha");
-  console.log("Elemen reCaptcha ditemukan.");
-  await page.click("div.g-recaptcha");
+  // await page.waitForSelector("div.g-recaptcha");
+  // console.log("Elemen reCaptcha ditemukan.");
+  // await page.click("div.g-recaptcha");
 
-  //   await page.evaluate(() => {
-  //     const element = document.getElementsByClassName(
-  //       "rc-button goog-inline-block rc-button-audio"
-  //     )[0];
-  //     if (element) {
-  //       element.click(); // Klik elemen secara langsung
-  //     }
-  //   });
+  // Ambil semua frame di halaman
+  const frames = page.frames();
+
+  for (const currentFrame of frames) {
+    const name = await currentFrame.evaluate(() => {
+      const captcha = document.getElementsByClassName(
+        "rc-anchor-center-item rc-anchor-checkbox-label"
+      )[0];
+      if (captcha) {
+        captcha.click();
+      }
+    });
+  }
+
+  console.log("berhasil");
 
   await new Promise((r) => setTimeout(r, 3000));
 
