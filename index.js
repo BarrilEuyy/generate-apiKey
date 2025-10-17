@@ -3,6 +3,8 @@ const puppeteerExtra = require("puppeteer-extra");
 const Stealth = require("puppeteer-extra-plugin-stealth");
 const fs = require("fs");
 const path = require("path");
+const https = require("https");
+const http = require("http");
 
 puppeteerExtra.use(Stealth());
 
@@ -94,6 +96,7 @@ function nameToSelector(name, tag = "input") {
 (async () => {
   const TARGET_URL = "https://www.cloudskillsboost.google/users/sign_up"; // Ganti dengan URL form-mu
 
+  const proxy = "65.111.26.125:3129";
   const browser = await puppeteerExtra.launch({
     headless: false,
     defaultViewport: { width: 1280, height: 720 },
@@ -103,7 +106,7 @@ function nameToSelector(name, tag = "input") {
   await page.setUserAgent(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0"
   );
-  await page.goto(TARGET_URL, { waitUntil: "networkidle2", timeout: 60000 });
+  await page.goto(TARGET_URL, { waitUntil: "networkidle2", timeout: 80000 });
 
   // generate data
   const { first, last } = randName();
@@ -266,18 +269,86 @@ function nameToSelector(name, tag = "input") {
   // Ambil semua frame di halaman
   const frames = page.frames();
 
-  for (const currentFrame of frames) {
-    const name = await currentFrame.evaluate(() => {
-      const captcha = document.getElementsByClassName(
-        "rc-anchor-center-item rc-anchor-checkbox-label"
-      )[0];
-      if (captcha) {
-        captcha.click();
+  for (const frame of frames) {
+    // Klik checkbox reCAPTCHA
+    const clicked = await frame.evaluate(() => {
+      const checkbox = document.querySelector(
+        ".rc-anchor-center-item.rc-anchor-checkbox-label"
+      );
+      if (checkbox) {
+        checkbox.click();
+        return true;
       }
+      return false;
     });
-  }
 
-  console.log("berhasil");
+    if (clicked) {
+      console.log("✅ Checkbox diklik, tunggu 2 detik...");
+      await new Promise((r) => setTimeout(r, 2000));
+
+      // Cari frame audio (biasanya URL mengandung 'bframe')
+      const audioFrame = page.frames().find((f) => f.url().includes("bframe"));
+
+      if (!audioFrame) {
+        console.log("❌ Frame audio belum muncul, coba tunggu sedikit...");
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+
+      const finalAudioFrame =
+        audioFrame || page.frames().find((f) => f.url().includes("bframe"));
+
+      if (finalAudioFrame) {
+        try {
+          await finalAudioFrame.waitForSelector("#recaptcha-audio-button", {
+            visible: true,
+            timeout: 5000,
+          });
+
+          await finalAudioFrame.click("#recaptcha-audio-button", {
+            delay: 100,
+          });
+
+          await finalAudioFrame.waitForSelector(
+            ".rc-audiochallenge-tdownload-link",
+            {
+              visible: true,
+              timeout: 5000,
+            }
+          );
+
+          await finalAudioFrame.click(".rc-audiochallenge-tdownload-link", {
+            delay: 100,
+          });
+
+          const audioUrl = await page.$$$eval(
+            "video, audio",
+            (el) => el.src || el.querySelector("source")?.src
+          );
+
+          console.log("🎵 Audio URL ditemukan:", audioUrl);
+
+          // 3️⃣ Pilih protokol yang sesuai
+          const client = audioUrl.startsWith("https") ? https : http;
+
+          // 4️⃣ Download file MP3
+          const file = fs.createWriteStream("audio.mp3");
+          client.get(audioUrl, (response) => {
+            response.pipe(file);
+            file.on("finish", () => {
+              file.close();
+              console.log("✅ Audio berhasil diunduh sebagai audio.mp3");
+            });
+          });
+
+          console.log("🎧 Klik tombol audio berhasil!");
+        } catch (err) {
+          console.log("❌ Gagal klik tombol audio:", err.message);
+        }
+      } else {
+        console.log("❌ Frame audio tetap tidak ditemukan.");
+      }
+    }
+  }
 
   await new Promise((r) => setTimeout(r, 3000));
 
