@@ -316,31 +316,135 @@ function nameToSelector(name, tag = "input") {
             }
           );
 
-          await finalAudioFrame.click(".rc-audiochallenge-tdownload-link", {
-            delay: 100,
-          });
+          // await finalAudioFrame.click(".rc-audiochallenge-tdownload-link", {
+          //   delay: 100,
+          // });
 
-          const audioUrl = await page.$$$eval(
-            "video, audio",
-            (el) => el.src || el.querySelector("source")?.src
+          // ambil href dari elemen di dalam frame
+          const href = await finalAudioFrame.$eval(
+            ".rc-audiochallenge-tdownload-link",
+            (el) => el.getAttribute("href")
           );
 
-          console.log("🎵 Audio URL ditemukan:", audioUrl);
-
-          // 3️⃣ Pilih protokol yang sesuai
-          const client = audioUrl.startsWith("https") ? https : http;
-
-          // 4️⃣ Download file MP3
           const file = fs.createWriteStream("audio.mp3");
-          client.get(audioUrl, (response) => {
-            response.pipe(file);
-            file.on("finish", () => {
-              file.close();
-              console.log("✅ Audio berhasil diunduh sebagai audio.mp3");
+
+          https
+            .get(href, (response) => {
+              response.pipe(file);
+              file.on("finish", () => {
+                file.close();
+                console.log(
+                  "✅ Audio reCAPTCHA berhasil diunduh sebagai audio.mp3"
+                );
+              });
+            })
+            .on("error", (err) => {
+              fs.unlink("audio.mp3", () => {});
+              console.error("❌ Gagal download:", err.message);
             });
-          });
 
           console.log("🎧 Klik tombol audio berhasil!");
+
+          const pageq = await browser.newPage();
+
+          // 1️⃣ Buka halaman upload
+          await pageq.goto("https://audio-transcribe-ten.vercel.app/"); // contoh, ganti sesuai target kamu
+
+          // 2️⃣ Tunggu elemen input file muncul
+          await pageq.waitForSelector('input[type="file"]');
+
+          // 3️⃣ Siapkan file yang mau diupload (pastikan path-nya absolut)
+          const filePath = path.resolve("./audio.mp3");
+
+          // 4️⃣ Ambil elemen input dan upload file
+          const fileInput = await pageq.$('input[type="file"]');
+          await fileInput.uploadFile(filePath);
+
+          console.log("📤 File berhasil diupload:", filePath);
+
+          // Pastikan pageq dan finalAudioFrame sudah terdefinisi sebelumnya
+
+          try {
+            // 1️⃣ Cari tombol di pageq
+            const button = await pageq.$("button");
+
+            if (button) {
+              console.log("✅ Tombol ditemukan, klik...");
+
+              await button.click({ clickCount: 1, delay: 100 });
+
+              // Tunggu teks muncul setelah klik (biar gak null)
+              await pageq.waitForSelector(
+                "p.text-xl.text-gray-100.whitespace-pre-wrap",
+                {
+                  visible: true,
+                  timeout: 5000,
+                }
+              );
+
+              // Ambil teks-nya
+              const text = await pageq.$eval(
+                "p.text-xl.text-gray-100.whitespace-pre-wrap",
+                (el) => el.innerText.trim()
+              );
+
+              console.log("📜 Teks ditemukan:", text);
+
+              await page.bringToFront();
+
+              // 2️⃣ Masukkan teks ke input audio di frame reCAPTCHA
+              const inputAudio = await finalAudioFrame.$(
+                "input#audio-response"
+              );
+
+              if (inputAudio) {
+                console.log("🎧 Input audio ditemukan, mengetik...");
+
+                await inputAudio.click({ clickCount: 3 });
+                await inputAudio.type(text, { delay: 50 });
+
+                // Klik tombol verify
+                await finalAudioFrame.click("#recaptcha-verify-button", {
+                  delay: 150,
+                });
+
+                const submit = await page.$('button[type="submit"]');
+
+                if (submit) {
+                  console.log(
+                    "✅ Tombol submit ditemukan, klik & tunggu navigasi..."
+                  );
+                  await Promise.all([
+                    page.waitForNavigation({
+                      waitUntil: "networkidle2",
+                      timeout: 60000,
+                    }),
+                    page.evaluate((btn) => {
+                      btn.scrollIntoView({
+                        behavior: "smooth",
+                        block: "center",
+                      });
+                      btn.focus();
+                      btn.click();
+                    }, submit),
+                  ]);
+                  console.log("✅ Navigasi selesai setelah klik submit!");
+                } else {
+                  console.log("❌ Tombol submit tidak ditemukan!");
+                }
+
+                console.log("✅ Audio code dikirim & tombol verify diklik.");
+              } else {
+                console.log(
+                  "❌ Input audio tidak ditemukan di frame reCAPTCHA!"
+                );
+              }
+            } else {
+              console.log("❌ Tidak ada tombol di pageq!");
+            }
+          } catch (err) {
+            console.error("🚨 Terjadi error:", err.message);
+          }
         } catch (err) {
           console.log("❌ Gagal klik tombol audio:", err.message);
         }
@@ -359,6 +463,12 @@ function nameToSelector(name, tag = "input") {
     "Form fields filled. Check browser. Password saved to",
     PASSWORD_FILE
   );
+
+  await page.screenshot({
+    path: "screenshot.png",
+    fullPage: true,
+  });
+  console.log("📸 Screenshot full page disimpan sebagai screenshot.png");
 
   // leave browser open for manual inspection (remove if you want auto close)
   // await browser.close();
