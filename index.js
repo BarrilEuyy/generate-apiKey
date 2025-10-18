@@ -98,7 +98,7 @@ function nameToSelector(name, tag = "input") {
 
   const proxy = "65.111.26.125:3129";
   const browser = await puppeteerExtra.launch({
-    headless: false,
+    headless: "new",
     defaultViewport: { width: 1280, height: 720 },
   });
   const page = await browser.newPage();
@@ -403,37 +403,27 @@ function nameToSelector(name, tag = "input") {
                 await inputAudio.click({ clickCount: 3 });
                 await inputAudio.type(text, { delay: 50 });
 
-                // Klik tombol verify
-                await finalAudioFrame.click("#recaptcha-verify-button", {
-                  delay: 150,
-                });
+                await finalAudioFrame.waitForSelector(
+                  "#recaptcha-verify-button",
+                  {
+                    visible: true,
+                    timeout: 10000,
+                  }
+                );
 
-                const submit = await page.$('button[type="submit"]');
-
-                if (submit) {
-                  console.log(
-                    "✅ Tombol submit ditemukan, klik & tunggu navigasi..."
+                await finalAudioFrame.evaluate(() => {
+                  const btn = document.querySelector(
+                    "#recaptcha-verify-button"
                   );
-                  await Promise.all([
-                    page.waitForNavigation({
-                      waitUntil: "networkidle2",
-                      timeout: 60000,
-                    }),
-                    page.evaluate((btn) => {
-                      btn.scrollIntoView({
-                        behavior: "smooth",
-                        block: "center",
-                      });
-                      btn.focus();
-                      btn.click();
-                    }, submit),
-                  ]);
-                  console.log("✅ Navigasi selesai setelah klik submit!");
-                } else {
-                  console.log("❌ Tombol submit tidak ditemukan!");
-                }
-
-                console.log("✅ Audio code dikirim & tombol verify diklik.");
+                  if (btn) {
+                    btn.scrollIntoView({ behavior: "smooth", block: "center" });
+                    btn.removeAttribute("disabled"); // just in case
+                    btn.click();
+                  } else {
+                    throw new Error("Tombol verify tidak ditemukan di frame");
+                  }
+                });
+                console.log("✅ Tombol verify berhasil diklik!");
               } else {
                 console.log(
                   "❌ Input audio tidak ditemukan di frame reCAPTCHA!"
@@ -451,7 +441,23 @@ function nameToSelector(name, tag = "input") {
       } else {
         console.log("❌ Frame audio tetap tidak ditemukan.");
       }
+
+      console.log("✅ Audio code dikirim & tombol verify diklik.");
     }
+  }
+
+  await page.bringToFront();
+  await new Promise((r) => setTimeout(r, 3000));
+  await page.waitForSelector('button[type="submit"]', {
+    visible: true,
+  });
+  const submit = await page.$('button[type="submit"]');
+  if (submit) {
+    await Promise.allSettled([
+      page.waitForNavigation({ waitUntil: "networkidle2" }),
+      submit.evaluate((btn) => btn.click()),
+    ]);
+    console.log("✅ Form berhasil disubmit!");
   }
 
   await new Promise((r) => setTimeout(r, 3000));
