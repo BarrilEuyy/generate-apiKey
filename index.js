@@ -4,7 +4,6 @@ const Stealth = require("puppeteer-extra-plugin-stealth");
 const fs = require("fs");
 const path = require("path");
 const https = require("https");
-const http = require("http");
 
 puppeteerExtra.use(Stealth());
 
@@ -96,10 +95,14 @@ function nameToSelector(name, tag = "input") {
 (async () => {
   const TARGET_URL = "https://www.cloudskillsboost.google/users/sign_up"; // Ganti dengan URL form-mu
 
-  const proxy = "65.111.26.125:3129";
   const browser = await puppeteerExtra.launch({
-    headless: "new",
+    headless: false,
     defaultViewport: { width: 1280, height: 720 },
+    // args: [
+    //   "--no-sandbox",
+    //   "--disable-setuid-sandbox",
+    //   "--proxy-server=45.3.51.84:3129", // ganti host:port kamu
+    // ],
   });
   const page = await browser.newPage();
 
@@ -110,9 +113,380 @@ function nameToSelector(name, tag = "input") {
 
   // generate data
   const { first, last } = randName();
-  const email = randEmail(first, last);
+
   const company = randCompany();
   const password = genPassword(14);
+
+  console.log("📬 Membuka temp-mail.org untuk ambil email...");
+  const tempMailPage = await browser.newPage();
+  await tempMailPage.goto("https://temp-mail.io/en", {
+    waitUntil: "networkidle2",
+    timeout: 60000,
+  });
+
+  // tunggu sampai email benar-benar termuat di halaman
+  await tempMailPage.waitForFunction(
+    () => {
+      const el = document.querySelector("#email");
+      return el.value;
+    },
+    { timeout: 30000 }
+  );
+
+  // ambil email address dari atribut yang benar
+  const email = await tempMailPage.$eval("#email", (el) => el.value);
+
+  console.log("✅ Email didapat dari temp-mail.org:", email);
+
+  const firefox = await browser.newPage();
+  await firefox.goto("https://proxyium.com/", {
+    waitUntil: "networkidle2",
+    timeout: 60000,
+  });
+
+  await firefox.bringToFront();
+  const targetUrl = "https://relay.firefox.com/";
+
+  const framesq = firefox.frames();
+  let inputFrame = null;
+
+  for (const frame of framesq) {
+    const hasInput = await frame.$('input[name="url"]');
+    if (hasInput) {
+      inputFrame = frame;
+      break;
+    }
+  }
+
+  if (!inputFrame) {
+    throw new Error(
+      "❌ Tidak menemukan input[name='url'] di halaman Proxyium!"
+    );
+  }
+
+  console.log("✅ Input ditemukan di frame:", inputFrame.url());
+
+  // Klik & isi value secara natural (agar event React/Angular terpanggil)
+  const inputHandle = await inputFrame.$('input[name="url"]');
+  await inputHandle.click({ clickCount: 3 });
+  await inputHandle.type(targetUrl, { delay: 80 });
+
+  // Verifikasi dari sisi browser
+  const value = await inputFrame.$eval('input[name="url"]', (el) => el.value);
+  console.log("📥 Value setelah diketik:", value);
+
+  if (!value || !value.includes("relay.firefox.com")) {
+    throw new Error(
+      "❌ Value input tidak berubah! (kemungkinan pakai shadow DOM)"
+    );
+  }
+
+  // Klik tombol GO
+  const button = await inputFrame.$("button#unique-btn-blue");
+  if (button) {
+    await button.click();
+    console.log("🚀 Tombol GO diklik, tunggu halaman terbuka...");
+  } else {
+    console.log("❌ Tombol GO tidak ditemukan di frame");
+  }
+
+  console.log("⏳ Menunggu 'Proxy is launching...' benar-benar selesai...");
+
+  await firefox.waitForFunction(
+    () => {
+      const el = document.querySelector("p#loading-text");
+      // Tunggu sampai elemen hilang atau teks-nya berubah dari "Proxy is launching"
+      return !el || !/proxy is launching/i.test(el.innerText);
+    },
+    {
+      timeout: 120000,
+      polling: 500,
+    }
+  );
+
+  await new Promise((r) => setTimeout(r, 10000));
+
+  console.log("✅ Animasi selesai, halaman siap dilanjutkan!");
+
+  // Klik tombol Sign In / Sign Up
+  await firefox.evaluate(() => {
+    const btn = [...document.querySelectorAll("a, button")].find((b) =>
+      /sign in|sign up/i.test(b.textContent)
+    );
+    if (btn) {
+      btn.scrollIntoView({ behavior: "smooth", block: "center" });
+      btn.click();
+    } else {
+      throw new Error("Tombol sign up tidak ditemukan di halaman");
+    }
+  });
+
+  // Tunggu halaman login muncul
+  await firefox.waitForSelector('input[name="email"]', { visible: true });
+
+  await firefox.evaluate(
+    (name, val) => {
+      const el = document.getElementsByName(name)[0];
+      if (!el) return false;
+      el.focus();
+      el.value = val;
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+      return true;
+    },
+    "email",
+    email
+  );
+
+  await firefox.waitForSelector("button.cta-primary.cta-xl", {
+    visible: true,
+    timeout: 10000,
+  });
+
+  await firefox.evaluate(() => {
+    const btn = document.querySelector("button.cta-primary.cta-xl");
+    if (btn) {
+      btn.scrollIntoView({ behavior: "smooth", block: "center" });
+      btn.removeAttribute("disabled"); // just in case
+      btn.click();
+    } else {
+      throw new Error(
+        "❌ Tombol dengan class 'cta-primary cta-xl' tidak ditemukan!"
+      );
+    }
+  });
+
+  console.log("✅ Tombol dengan class 'cta-primary cta-xl' berhasil diklik!");
+
+  // Tunggu sampai input password muncul
+  await firefox.waitForSelector('input[type="password"]', {
+    visible: true,
+    timeout: 10000,
+  });
+
+  // Ketik password-nya
+  const passwordValue = genPassword(8); // atau bisa ambil dari variabel kamu sebelumnya
+  await firefox.type('input[type="password"]', passwordValue, { delay: 50 });
+
+  // Simpan ke variabel (misal nanti mau dipakai buat login atau disimpan di file)
+  const relayPassword = passwordValue;
+
+  console.log("✅ Password berhasil diisi:", relayPassword);
+
+  await firefox.waitForSelector(
+    "button.cta-primary.cta-xl.cta-primary.cta-xl",
+    {
+      visible: true,
+      timeout: 10000,
+    }
+  );
+
+  await new Promise((r) => setTimeout(r, 3000));
+
+  await firefox.evaluate(() => {
+    const btn = document.querySelector(
+      "button.cta-primary.cta-xl.cta-primary.cta-xl"
+    );
+    if (btn) {
+      btn.scrollIntoView({ behavior: "smooth", block: "center" });
+      btn.removeAttribute("disabled"); // just in case
+      btn.click();
+    } else {
+      throw new Error(
+        "❌ Tombol dengan class 'cta-primary cta-xl' tidak ditemukan!"
+      );
+    }
+  });
+
+  tempMailPage.bringToFront();
+
+  await tempMailPage.waitForSelector(
+    "ul.email-list.grow.overflow-x-hidden.absolute.w-full.min-h-full",
+    {
+      visible: true,
+      timeout: 20000,
+    }
+  );
+
+  console.log("👀 Mengamati perubahan pada daftar email...");
+
+  const otp = await tempMailPage.evaluate(() => {
+    return new Promise((resolve) => {
+      const ul = document.querySelector(
+        "ul.email-list.grow.overflow-x-hidden.absolute.w-full.min-h-full"
+      );
+      if (!ul) {
+        resolve(null);
+        return;
+      }
+
+      // deteksi ketika <li> baru ditambahkan
+      const observer = new MutationObserver((mutations) => {
+        for (const m of mutations) {
+          for (const node of m.addedNodes) {
+            if (node.tagName === "LI") {
+              observer.disconnect();
+              resolve(node.innerText || "📩 otp baru masuk (tanpa teks)");
+              return;
+            }
+          }
+        }
+      });
+
+      observer.observe(ul, { childList: true });
+    });
+  });
+
+  if (otp) {
+    console.log("✅ otp baru terdeteksi:", otp);
+  } else {
+    console.log("⚠️ Tidak ada otp baru yang muncul dalam waktu tunggu.");
+  }
+
+  // Ambil OTP (angka 6 digit)
+  const otpMatch = otp.match(/\b(\d{6})\b/);
+
+  let verificationCode = null;
+
+  if (otpMatch) {
+    verificationCode = otpMatch[1];
+    console.log("✅ Verification code ditemukan:", verificationCode);
+  } else {
+    console.log("❌ Tidak ditemukan kode verifikasi di pesan.");
+  }
+
+  // verificationCode harus sudah ter-definisi (mis. "709998")
+  if (!verificationCode)
+    throw new Error("verificationCode belum didefinisikan!");
+
+  try {
+    // pastikan tab firefox aktif
+    await firefox.bringToFront();
+
+    // 1) Tunggu input code tersedia
+    await firefox.waitForSelector('input[name="code"]', {
+      visible: true,
+      timeout: 15000,
+    });
+
+    // 2) Isi kode (bersih-bersihkan dulu isi lama)
+    const codeHandle = await firefox.$('input[name="code"]');
+    await codeHandle.click({ clickCount: 3 });
+    await codeHandle.press("Backspace");
+    await codeHandle.type(String(verificationCode), { delay: 60 });
+
+    console.log("✅ OTP terisi:", verificationCode);
+
+    // beri waktu kecil supaya event input/change ter-trigger di halaman
+    await new Promise((r) => setTimeout(r, 1000));
+
+    // 3) Cari tombol di page utama dulu
+    let btn = await firefox.$("button.cta-primary.cta-xl");
+
+    // 4) Kalau nggak ditemukan di page utama, cari di semua frame
+    if (!btn) {
+      for (const f of firefox.frames()) {
+        try {
+          const handle = await f.$("button.cta-primary.cta-xl");
+          if (handle) {
+            // bawa fokus ke page lalu operate di frame
+            await firefox.bringToFront();
+            // Klik via evaluate di context frame
+            await f.evaluate((sel) => {
+              const b = document.querySelector(sel);
+              if (b) {
+                b.scrollIntoView({ behavior: "smooth", block: "center" });
+                b.removeAttribute("disabled");
+                b.click();
+              }
+            }, "button.cta-primary.cta-xl");
+            console.log("✅ Tombol klik di dalam frame.");
+            return;
+          }
+        } catch (e) {
+          // frame bisa detached, skip
+        }
+      }
+    } else {
+      // 5) Klik tombol di page utama (pakai evaluate agar klik native)
+      await firefox.evaluate(() => {
+        const sel = "button.cta-primary.cta-xl";
+        const b = document.querySelector(sel);
+        if (b) {
+          b.scrollIntoView({ behavior: "smooth", block: "center" });
+          b.removeAttribute("disabled");
+          b.focus();
+          b.click();
+        } else {
+          throw new Error("Tombol tidak ditemukan saat evaluate");
+        }
+      });
+      console.log("✅ Tombol klik di page utama.");
+    }
+
+    // 6) (opsional) tunggu navigasi / konfirmasi sukses
+    try {
+      await firefox.waitForNavigation({
+        waitUntil: "networkidle2",
+        timeout: 15000,
+      });
+      console.log("🎉 Navigasi/submit selesai.");
+    } catch {
+      // jika tidak ada navigasi, page mungkin update via XHR — itu juga ok
+      console.log(
+        "ℹ️ Tidak ada navigasi; kemungkinan submit terjadi via AJAX."
+      );
+    }
+  } catch (err) {
+    console.error("❌ Gagal isi code / klik tombol:", err.message);
+    // debug: screenshot
+    try {
+      await firefox.screenshot({ path: "debug-otp-fail.png", fullPage: true });
+    } catch {}
+    throw err;
+  }
+
+  await firefox.waitForFunction(
+    () => {
+      return [...document.querySelectorAll("button")].some((btn) =>
+        btn.textContent.trim().toLowerCase().includes("generate new mask")
+      );
+    },
+    { timeout: 30000 }
+  );
+
+  await firefox.evaluate(() => {
+    const btn = [...document.querySelectorAll("button")].find((b) =>
+      b.textContent.trim().toLowerCase().includes("generate new mask")
+    );
+    if (btn) {
+      btn.scrollIntoView({ behavior: "smooth", block: "center" });
+      btn.removeAttribute("disabled"); // just in case
+      btn.click();
+      return true;
+    } else {
+      throw new Error(
+        "❌ Tombol dengan teks 'Generate new mask' tidak ditemukan!"
+      );
+    }
+  });
+
+  console.log("✅ Tombol 'Generate new mask' berhasil diklik!");
+
+  await new Promise((r) => setTimeout(r, 4000));
+
+  const copiedText = await firefox.evaluate(() => {
+    const button = document.querySelector('button[title="Click to copy"] samp');
+    if (!button)
+      throw new Error(
+        "❌ Elemen <samp> di dalam tombol 'Click to copy' tidak ditemukan!"
+      );
+    return button.textContent.trim();
+  });
+
+  console.log("📋 Text yang disalin:", copiedText);
+
+  await page.bringToFront();
 
   // Helper: set value via evaluate (works even if direct selectors tricky)
   async function setInputValueByName(name, value) {
