@@ -106,7 +106,7 @@ function nameToSelector(name, tag = "input") {
   await page.setUserAgent(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0"
   );
-  await page.goto("https://www.proxysite.com/", {
+  await page.goto("https://proxyium.com/", {
     waitUntil: "networkidle2",
     timeout: 60000,
   });
@@ -115,7 +115,7 @@ function nameToSelector(name, tag = "input") {
   let inputFramew = null;
 
   for (const frame of framesw) {
-    const hasInput = await frame.$('input[name="d"]');
+    const hasInput = await frame.$('input[name="url"]');
     if (hasInput) {
       inputFramew = frame;
       break;
@@ -131,12 +131,12 @@ function nameToSelector(name, tag = "input") {
   console.log("✅ Input ditemukan di frame:", inputFramew.url());
 
   // Klik & isi value secara natural (agar event React/Angular terpanggil)
-  const inputHandlew = await inputFramew.$('input[name="d"]');
+  const inputHandlew = await inputFramew.$('input[name="url"]');
   await inputHandlew.click({ clickCount: 3 });
   await inputHandlew.type(TARGET_URL, { delay: 80 });
 
   // Verifikasi dari sisi browser
-  const valuew = await inputFramew.$eval('input[name="d"]', (el) => el.value);
+  const valuew = await inputFramew.$eval('input[name="url"]', (el) => el.value);
   console.log("📥 Value setelah diketik:", valuew);
 
   if (!valuew || !valuew.includes("www.cloudskillsboost.google")) {
@@ -146,9 +146,9 @@ function nameToSelector(name, tag = "input") {
   }
 
   // Klik tombol GO
-  const buttonw = await inputFramew.$("button[type='submit']");
+  const buttonw = await inputFramew.$("button#unique-btn-blue");
   if (buttonw) {
-    await buttonw.click({ delay: 100 });
+    await buttonw.click();
     console.log("🚀 Tombol GO diklik, tunggu halaman terbuka...");
   } else {
     console.log("❌ Tombol GO tidak ditemukan di frame");
@@ -721,16 +721,31 @@ function nameToSelector(name, tag = "input") {
       console.log("✅ Checkbox diklik, tunggu 2 detik...");
       await new Promise((r) => setTimeout(r, 2000));
 
-      // Cari frame audio (biasanya URL mengandung 'bframe')
-      const audioFrame = page.frames().find((f) => f.url().includes("bframe"));
-
-      if (!audioFrame) {
-        console.log("❌ Frame audio belum muncul, coba tunggu sedikit...");
-        await new Promise((r) => setTimeout(r, 2000));
+      function findFrameByUrl(frame, keyword) {
+        if (frame.url().includes(keyword)) return frame;
+        for (const child of frame.childFrames()) {
+          const found = findFrameByUrl(child, keyword);
+          if (found) return found;
+        }
+        return null;
       }
 
-      const finalAudioFrame =
-        audioFrame || page.frames().find((f) => f.url().includes("bframe"));
+      // 🕐 Tunggu frame muncul dengan timeout
+      async function waitForFrame(page, keyword, timeout = 15000) {
+        const start = Date.now();
+        let frame = null;
+
+        while (!frame && Date.now() - start < timeout) {
+          frame = findFrameByUrl(page.mainFrame(), keyword);
+          if (frame) break;
+          await new Promise((r) => setTimeout(r, 500));
+        }
+
+        return frame;
+      }
+
+      // 🚀 Penggunaan
+      const finalAudioFrame = await waitForFrame(page, "bframe", 20000);
 
       if (finalAudioFrame) {
         try {
