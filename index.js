@@ -106,7 +106,7 @@ function nameToSelector(name, tag = "input") {
   await page.setUserAgent(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0"
   );
-  await page.goto("https://proxyium.com/", {
+  await page.goto("https://www.proxysite.com/", {
     waitUntil: "networkidle2",
     timeout: 60000,
   });
@@ -115,7 +115,7 @@ function nameToSelector(name, tag = "input") {
   let inputFramew = null;
 
   for (const frame of framesw) {
-    const hasInput = await frame.$('input[name="url"]');
+    const hasInput = await frame.$('input[name="d"]');
     if (hasInput) {
       inputFramew = frame;
       break;
@@ -131,12 +131,12 @@ function nameToSelector(name, tag = "input") {
   console.log("✅ Input ditemukan di frame:", inputFramew.url());
 
   // Klik & isi value secara natural (agar event React/Angular terpanggil)
-  const inputHandlew = await inputFramew.$('input[name="url"]');
+  const inputHandlew = await inputFramew.$('input[name="d"]');
   await inputHandlew.click({ clickCount: 3 });
   await inputHandlew.type(TARGET_URL, { delay: 80 });
 
   // Verifikasi dari sisi browser
-  const valuew = await inputFramew.$eval('input[name="url"]', (el) => el.value);
+  const valuew = await inputFramew.$eval('input[name="d"]', (el) => el.value);
   console.log("📥 Value setelah diketik:", valuew);
 
   if (!valuew || !valuew.includes("www.cloudskillsboost.google")) {
@@ -146,9 +146,9 @@ function nameToSelector(name, tag = "input") {
   }
 
   // Klik tombol GO
-  const buttonw = await inputFramew.$("button#unique-btn-blue");
+  const buttonw = await inputFramew.$("button[type='submit']");
   if (buttonw) {
-    await buttonw.click();
+    await buttonw.click({ delay: 100 });
     console.log("🚀 Tombol GO diklik, tunggu halaman terbuka...");
   } else {
     console.log("❌ Tombol GO tidak ditemukan di frame");
