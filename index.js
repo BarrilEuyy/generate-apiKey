@@ -38,10 +38,7 @@ function randName() {
   ]);
   return { first, last };
 }
-function randEmail(first, last) {
-  const domains = ["gmail.com", "outlook.com", "yahoo.com"];
-  return `${first.toLowerCase()}.${last.toLowerCase()}@${randChoice(domains)}`;
-}
+
 function randCompany() {
   return randChoice([
     "Acme Corp",
@@ -109,7 +106,69 @@ function nameToSelector(name, tag = "input") {
   await page.setUserAgent(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0"
   );
-  await page.goto(TARGET_URL, { waitUntil: "networkidle2", timeout: 80000 });
+  await page.goto("https://proxyium.com/", {
+    waitUntil: "networkidle2",
+    timeout: 60000,
+  });
+
+  const framesw = page.frames();
+  let inputFramew = null;
+
+  for (const frame of framesw) {
+    const hasInput = await frame.$('input[name="url"]');
+    if (hasInput) {
+      inputFramew = frame;
+      break;
+    }
+  }
+
+  if (!inputFramew) {
+    throw new Error(
+      "❌ Tidak menemukan input[name='url'] di halaman Proxyium!"
+    );
+  }
+
+  console.log("✅ Input ditemukan di frame:", inputFramew.url());
+
+  // Klik & isi value secara natural (agar event React/Angular terpanggil)
+  const inputHandlew = await inputFramew.$('input[name="url"]');
+  await inputHandlew.click({ clickCount: 3 });
+  await inputHandlew.type(TARGET_URL, { delay: 80 });
+
+  // Verifikasi dari sisi browser
+  const valuew = await inputFramew.$eval('input[name="url"]', (el) => el.value);
+  console.log("📥 Value setelah diketik:", valuew);
+
+  if (!valuew || !valuew.includes("www.cloudskillsboost.google")) {
+    throw new Error(
+      "❌ Value input tidak berubah! (kemungkinan pakai shadow DOM)"
+    );
+  }
+
+  // Klik tombol GO
+  const buttonw = await inputFramew.$("button#unique-btn-blue");
+  if (buttonw) {
+    await buttonw.click();
+    console.log("🚀 Tombol GO diklik, tunggu halaman terbuka...");
+  } else {
+    console.log("❌ Tombol GO tidak ditemukan di frame");
+  }
+
+  console.log("⏳ Menunggu 'Proxy is launching...' benar-benar selesai...");
+
+  await page.waitForFunction(
+    () => {
+      const el = document.querySelector("p#loading-text");
+      // Tunggu sampai elemen hilang atau teks-nya berubah dari "Proxy is launching"
+      return !el || !/proxy is launching/i.test(el.innerText);
+    },
+    {
+      timeout: 120000,
+      polling: 500,
+    }
+  );
+
+  await new Promise((r) => setTimeout(r, 10000));
 
   // generate data
   const { first, last } = randName();
@@ -446,6 +505,8 @@ function nameToSelector(name, tag = "input") {
     throw err;
   }
 
+  await new Promise((r) => setTimeout(r, 4000));
+
   await firefox.waitForFunction(
     () => {
       return [...document.querySelectorAll("button")].some((btn) =>
@@ -475,7 +536,7 @@ function nameToSelector(name, tag = "input") {
 
   await new Promise((r) => setTimeout(r, 4000));
 
-  const copiedText = await firefox.evaluate(() => {
+  const finalEmail = await firefox.evaluate(() => {
     const button = document.querySelector('button[title="Click to copy"] samp');
     if (!button)
       throw new Error(
@@ -484,7 +545,7 @@ function nameToSelector(name, tag = "input") {
     return button.textContent.trim();
   });
 
-  console.log("📋 Text yang disalin:", copiedText);
+  console.log("📋 Text yang disalin:", finalEmail);
 
   await page.bringToFront();
 
@@ -524,7 +585,7 @@ function nameToSelector(name, tag = "input") {
   // Fill textual fields
   await setInputValueByName("user[first_name]", first);
   await setInputValueByName("user[last_name]", last);
-  await setInputValueByName("user[email]", email);
+  await setInputValueByName("user[email]", finalEmail);
   await setInputValueByName("user[company_name]", company);
 
   // Password fields (two inputs). Try direct name first, else find input[type=password]
@@ -673,6 +734,35 @@ function nameToSelector(name, tag = "input") {
 
       if (finalAudioFrame) {
         try {
+          // Klik tombol audio dulu
+          await finalAudioFrame.click("#recaptcha-audio-button", {
+            delay: 100,
+          });
+          console.log(
+            "🎧 Klik tombol audio berhasil! Menunggu frame audio baru muncul..."
+          );
+
+          // Tunggu frame audio baru (biasanya URL-nya berubah sedikit)
+          const audioChallengeFrame = await waitForFrame(page, "audio", 10000);
+
+          if (!audioChallengeFrame) {
+            throw new Error("❌ Frame audio challenge tidak muncul!");
+          }
+
+          console.log(
+            "✅ Frame audio challenge aktif:",
+            audioChallengeFrame.url()
+          );
+
+          // Sekarang cari .rc-audiochallenge-tdownload-link di frame ini
+          await audioChallengeFrame.waitForSelector(
+            ".rc-audiochallenge-tdownload-link",
+            {
+              visible: true,
+              timeout: 10000,
+            }
+          );
+
           await finalAudioFrame.waitForSelector("#recaptcha-audio-button", {
             visible: true,
             timeout: 5000,
