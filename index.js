@@ -776,7 +776,7 @@ function nameToSelector(name, tag = "input") {
             const y = box.y + box.height / 2;
             await page.bringToFront();
             await page.mouse.move(x, y, { steps: 10 });
-            await page.waitForTimeout(100 + Math.random() * 100);
+            await new Promise((r) => setTimeout(r, 100 + Math.random() * 100));
             await page.mouse.click(x, y, { delay: 150 });
 
             console.log("🎧 Tombol audio diklik (pakai mouse.click).");
