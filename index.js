@@ -749,80 +749,100 @@ function nameToSelector(name, tag = "input") {
 
       if (finalAudioFrame) {
         try {
-          // Klik tombol audio dulu
-          await finalAudioFrame.click("#recaptcha-audio-button", {
-            delay: 100,
-          });
-          console.log(
-            "🎧 Klik tombol audio berhasil! Menunggu frame audio baru muncul..."
-          );
-
-          // Tunggu frame audio baru (biasanya URL-nya berubah sedikit)
-          const audioChallengeFrame = await waitForFrame(page, "audio", 10000);
-
-          if (!audioChallengeFrame) {
-            throw new Error("❌ Frame audio challenge tidak muncul!");
-          }
-
-          console.log(
-            "✅ Frame audio challenge aktif:",
-            audioChallengeFrame.url()
-          );
-
-          // Sekarang cari .rc-audiochallenge-tdownload-link di frame ini
-          await audioChallengeFrame.waitForSelector(
-            ".rc-audiochallenge-tdownload-link",
-            {
+          try {
+            console.log("🔎 Cari tombol audio di frame...");
+            await finalAudioFrame.waitForSelector("#recaptcha-audio-button", {
               visible: true,
               timeout: 10000,
-            }
-          );
-
-          await finalAudioFrame.waitForSelector("#recaptcha-audio-button", {
-            visible: true,
-            timeout: 5000,
-          });
-
-          await finalAudioFrame.click("#recaptcha-audio-button", {
-            delay: 100,
-          });
-
-          await finalAudioFrame.waitForSelector(
-            ".rc-audiochallenge-tdownload-link",
-            {
-              visible: true,
-              timeout: 5000,
-            }
-          );
-
-          // await finalAudioFrame.click(".rc-audiochallenge-tdownload-link", {
-          //   delay: 100,
-          // });
-
-          // ambil href dari elemen di dalam frame
-          const href = await finalAudioFrame.$eval(
-            ".rc-audiochallenge-tdownload-link",
-            (el) => el.getAttribute("href")
-          );
-
-          const file = fs.createWriteStream("audio.mp3");
-
-          https
-            .get(href, (response) => {
-              response.pipe(file);
-              file.on("finish", () => {
-                file.close();
-                console.log(
-                  "✅ Audio reCAPTCHA berhasil diunduh sebagai audio.mp3"
-                );
-              });
-            })
-            .on("error", (err) => {
-              fs.unlink("audio.mp3", () => {});
-              console.error("❌ Gagal download:", err.message);
             });
 
-          console.log("🎧 Klik tombol audio berhasil!");
+            // ✅ Ambil posisi tombol audio
+            const btn = await finalAudioFrame.$("#recaptcha-audio-button");
+            const box = await btn.boundingBox();
+
+            if (!box) {
+              console.log(
+                "❌ boundingBox tidak ditemukan, tombol tidak terlihat."
+              );
+              fs.writeFileSync(
+                "debug-bframe.html",
+                await finalAudioFrame.content()
+              );
+              return;
+            }
+
+            // 🖱️ Klik dengan koordinat absolut (lebih efektif di Proxyium)
+            const x = box.x + box.width / 2;
+            const y = box.y + box.height / 2;
+            await page.bringToFront();
+            await page.mouse.move(x, y, { steps: 10 });
+            await page.waitForTimeout(100 + Math.random() * 100);
+            await page.mouse.click(x, y, { delay: 150 });
+
+            console.log("🎧 Tombol audio diklik (pakai mouse.click).");
+
+            // Tunggu frame audio challenge muncul
+            const audioChallengeFrame = await waitForFrame(
+              page,
+              "audio",
+              10000
+            );
+            if (!audioChallengeFrame) {
+              console.log(
+                "❌ Frame audio challenge tidak muncul setelah klik."
+              );
+              fs.writeFileSync("debug-after-click.html", await page.content());
+              return;
+            }
+
+            console.log(
+              "✅ Frame audio challenge aktif:",
+              audioChallengeFrame.url()
+            );
+
+            // Tunggu link download muncul
+            await audioChallengeFrame.waitForSelector(
+              ".rc-audiochallenge-tdownload-link",
+              {
+                visible: true,
+                timeout: 10000,
+              }
+            );
+
+            const href = await audioChallengeFrame.$eval(
+              ".rc-audiochallenge-tdownload-link",
+              (el) => el.getAttribute("href")
+            );
+
+            if (!href || !href.startsWith("http")) {
+              console.log(
+                "❌ href audio tidak valid, mungkin ter-strip oleh proxy."
+              );
+              fs.writeFileSync(
+                "debug-audio.html",
+                await audioChallengeFrame.content()
+              );
+              return;
+            }
+
+            // 💾 Unduh audio
+            const file = fs.createWriteStream("audio.mp3");
+            https
+              .get(href, (response) => {
+                response.pipe(file);
+                file.on("finish", () => {
+                  file.close();
+                  console.log("✅ Audio reCAPTCHA diunduh sebagai audio.mp3");
+                });
+              })
+              .on("error", (err) => {
+                fs.unlink("audio.mp3", () => {});
+                console.error("❌ Gagal download:", err.message);
+              });
+          } catch (err) {
+            console.log("❌ Gagal klik tombol audio:", err.message);
+            fs.writeFileSync("debug-error.html", await page.content());
+          }
 
           const pageq = await browser.newPage();
 
