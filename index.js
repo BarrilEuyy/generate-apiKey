@@ -988,7 +988,7 @@ async function humanMove(page, startX, startY, endX, endY, opts = {}) {
     const xi = startX + (endX - startX) * t + rand(-0.5, 0.5);
     const yi = startY + (endY - startY) * t + rand(-0.5, 0.5);
     await page.mouse.move(xi, yi, { steps: 1 });
-    await page.waitForTimeout(randInt(5, 25));
+    await new Promise((r) => setTimeout(r, randInt(5, 25)));
   }
 }
 
@@ -1025,21 +1025,21 @@ async function clickNatural(page, selector, opts = {}) {
       const startX = x + rand(-100, 100);
       const startY = y + rand(-100, 100);
 
-      await page.waitForTimeout(randInt(...preHoverDelay));
+      await new Promise((r) => setTimeout(r, randInt(...preHoverDelay)));
       await humanMove(page, startX, startY, x, y);
-      await page.waitForTimeout(randInt(40, 120));
+      await new Promise((r) => setTimeout(r, randInt(40, 120)));
 
       // klik alami
       await page.mouse.down();
-      await page.waitForTimeout(randInt(50, 160));
+      await new Promise((r) => setTimeout(r, randInt(50, 160)));
       await page.mouse.up();
 
-      await page.waitForTimeout(randInt(...postClickDelay));
+      await new Promise((r) => setTimeout(r, ...postClickDelay));
 
       return { success: true, attempt };
     } catch (err) {
       console.warn(`Attempt ${attempt} failed: ${err.message}`);
-      await page.waitForTimeout(randInt(200, 500));
+      await new Promise((r) => setTimeout(r, randInt(200, 500)));
     }
   }
 
