@@ -170,6 +170,34 @@ function nameToSelector(name, tag = "input") {
 
   await new Promise((r) => setTimeout(r, 10000));
 
+  // Klik tombol "Use Email and Password" segera setelah halaman terbuka
+  try {
+    await page.waitForSelector("#use-email-and-password-button", {
+      visible: true,
+      timeout: 15000,
+    });
+
+    await page.evaluate(() => {
+      const btn = document.getElementById("use-email-and-password-button");
+      if (btn) {
+        btn.scrollIntoView({ behavior: "smooth", block: "center" });
+        btn.click();
+        console.log(
+          '✅ Tombol "Use Email and Password" diklik saat pertama kali halaman terbuka!'
+        );
+      } else {
+        console.error(
+          '❌ Tombol "Use Email and Password" tidak ditemukan saat pertama kali halaman terbuka!'
+        );
+      }
+    });
+  } catch (err) {
+    console.warn(
+      '⚠️ Tombol "Use Email and Password" tidak muncul:',
+      err.message
+    );
+  }
+
   // generate data
   const { first, last } = randName();
 
@@ -754,9 +782,22 @@ function nameToSelector(name, tag = "input") {
             timeout: 5000,
           });
 
-          await finalAudioFrame.click("#recaptcha-audio-button", {
-            delay: 100,
+          await new Promise((r) => setTimeout(r, 3000));
+
+          // await finalAudioFrame.click("#recaptcha-audio-button", {
+          //   delay: 100,
+          // });
+
+          await finalAudioFrame.evaluate(() => {
+            const checkbox = document.querySelector("#recaptcha-audio-button");
+            if (checkbox) {
+              checkbox.click();
+              return true;
+            }
+            return false;
           });
+
+          await clickNatural(page, "a", { maxRetries: 2 });
 
           await finalAudioFrame.waitForSelector(
             ".rc-audiochallenge-tdownload-link",
@@ -929,3 +970,78 @@ function nameToSelector(name, tag = "input") {
   // leave browser open for manual inspection (remove if you want auto close)
   // await browser.close();
 })();
+
+function rand(min, max) {
+  return Math.random() * (max - min) + min;
+}
+function randInt(min, max) {
+  return Math.floor(rand(min, max + 1));
+}
+function easeInOutQuad(t) {
+  return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+}
+
+async function humanMove(page, startX, startY, endX, endY, opts = {}) {
+  const steps = opts.steps ?? randInt(15, 35);
+  for (let i = 1; i <= steps; i++) {
+    const t = easeInOutQuad(i / steps);
+    const xi = startX + (endX - startX) * t + rand(-0.5, 0.5);
+    const yi = startY + (endY - startY) * t + rand(-0.5, 0.5);
+    await page.mouse.move(xi, yi, { steps: 1 });
+    await page.waitForTimeout(randInt(5, 25));
+  }
+}
+
+async function clickNatural(page, selector, opts = {}) {
+  const {
+    maxRetries = 3,
+    waitVisible = 8000,
+    preHoverDelay = [100, 300],
+    postClickDelay = [150, 400],
+  } = opts;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await page.waitForSelector(selector, {
+        visible: true,
+        timeout: waitVisible,
+      });
+      const el = await page.$(selector);
+      if (!el) throw new Error("Element not found");
+
+      const box = await el.boundingBox();
+      if (!box) throw new Error("Element not visible");
+
+      // scroll ke tengah layar
+      await el.evaluate((e) =>
+        e.scrollIntoView({ block: "center", behavior: "instant" })
+      );
+
+      // titik klik (sedikit acak di dalam elemen)
+      const x = box.x + box.width / 2 + rand(-5, 5);
+      const y = box.y + box.height / 2 + rand(-5, 5);
+
+      // gerakan mouse alami
+      const startX = x + rand(-100, 100);
+      const startY = y + rand(-100, 100);
+
+      await page.waitForTimeout(randInt(...preHoverDelay));
+      await humanMove(page, startX, startY, x, y);
+      await page.waitForTimeout(randInt(40, 120));
+
+      // klik alami
+      await page.mouse.down();
+      await page.waitForTimeout(randInt(50, 160));
+      await page.mouse.up();
+
+      await page.waitForTimeout(randInt(...postClickDelay));
+
+      return { success: true, attempt };
+    } catch (err) {
+      console.warn(`Attempt ${attempt} failed: ${err.message}`);
+      await page.waitForTimeout(randInt(200, 500));
+    }
+  }
+
+  return { success: false };
+}
