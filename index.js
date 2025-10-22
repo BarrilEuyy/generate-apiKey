@@ -797,7 +797,9 @@ function nameToSelector(name, tag = "input") {
             return false;
           });
 
-          await clickNatural(page, "a", { maxRetries: 2 });
+          await new Promise((r) => setTimeout(r, 2500));
+
+          // await clickNatural(page, "a", { maxRetries: 2 });
 
           await finalAudioFrame.waitForSelector(
             ".rc-audiochallenge-tdownload-link",
